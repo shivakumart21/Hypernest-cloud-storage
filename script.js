@@ -441,12 +441,11 @@ async function handleUpload(files) {
               if (!response.ok) throw new Error(result.error || 'Server proxy failed');
           } catch (err) {
               if (err.name === 'SyntaxError' || err.message === 'BACKEND_MISSING') {
-                  return uploadDirectly(file);
-              }
-              throw err;
+                  result = await uploadDirectly(file);
+              } else throw err;
           }
       } else {
-          return uploadDirectly(file);
+          result = await uploadDirectly(file);
       }
 
       async function uploadDirectly(file) {

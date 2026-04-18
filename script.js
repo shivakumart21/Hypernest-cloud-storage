@@ -206,12 +206,14 @@ async function loadFiles(searchQuery = '', sortBy = 'name-asc') {
                 const response = await fetch('/proxy-list', {
                     headers: { 'x-user-id': currentUser.id }
                 });
-                const text = await response.text();
-                if (text.includes('<!DOCTYPE html>')) throw new Error('BACKEND_MISSING');
-                data = JSON.parse(text);
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    throw new Error('BACKEND_MISSING');
+                }
+                data = await response.json();
                 if (!response.ok) throw new Error(data.error || 'Failed to fetch files');
             } catch (err) {
-                if (err.message === 'BACKEND_MISSING') {
+                if (err.name === 'SyntaxError' || err.message === 'BACKEND_MISSING') {
                     data = await listDirectly();
                 } else throw err;
             }
@@ -431,14 +433,14 @@ async function handleUpload(files) {
                   },
                   body: file
               });
-              const text = await response.text();
-              try { result = JSON.parse(text); } catch(e) { 
-                  if (text.includes('<!DOCTYPE html>')) throw new Error('BACKEND_MISSING');
-                  throw e;
+              const contentType = response.headers.get('content-type');
+              if (!contentType || !contentType.includes('application/json')) {
+                  throw new Error('BACKEND_MISSING');
               }
+              result = await response.json();
               if (!response.ok) throw new Error(result.error || 'Server proxy failed');
           } catch (err) {
-              if (err.message === 'BACKEND_MISSING') {
+              if (err.name === 'SyntaxError' || err.message === 'BACKEND_MISSING') {
                   return uploadDirectly(file);
               }
               throw err;

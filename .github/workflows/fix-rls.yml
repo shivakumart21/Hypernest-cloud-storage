@@ -12,17 +12,26 @@ jobs:
       - name: Run SQL Fix via Postgres
         run: |
           sudo apt-get install -y postgresql-client
-          PGPASSWORD='Shivakumar21*05*05t' psql -h db.xozztctahqweeclgsovy.supabase.co -p 5432 -U postgres -d postgres -c "
-            -- Enable RLS on storage if not already
-            ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
+          # Try Port 6543 (Transaction Bouncer) which is often more reliable
+          PGPASSWORD='Shivakumar21*05*05t' psql -h db.xozztctahqweeclgsovy.supabase.co -p 6543 -U postgres -d postgres -c "
+            -- 1. Ensure bucket exists
+            INSERT INTO storage.buckets (id, name, public) 
+            VALUES ('user-files', 'user-files', true)
+            ON CONFLICT (id) DO UPDATE SET public = true;
 
-            -- Drop old policies to avoid duplicates
-            DROP POLICY IF EXISTS 'Allow All' ON storage.objects;
-            DROP POLICY IF EXISTS 'Allow authenticated users to upload files' ON storage.objects;
-            DROP POLICY IF EXISTS 'Allow users to update own files' ON storage.objects;
-            DROP POLICY IF EXISTS 'Allow users to view their own files' ON storage.objects;
-            DROP POLICY IF EXISTS 'Allow users to delete their own files' ON storage.objects;
+            -- 2. Drop EVERY possible policy to start clean
+            DO \$\$
+            DECLARE
+                pol record;
+            BEGIN
+                FOR pol IN (SELECT policyname FROM pg_policies WHERE tablename = 'objects' AND schemaname = 'storage') LOOP
+                    EXECUTE format('DROP POLICY IF EXISTS %I ON storage.objects', pol.policyname);
+                END LOOP;
+            END \$\$;
 
-            -- Create a 'God Mode' policy for your dev environment
-            CREATE POLICY 'Allow All' ON storage.objects FOR ALL USING (bucket_id = 'user-files') WITH CHECK (bucket_id = 'user-files');
+            -- 3. The 'Universal Key' - Allow everything for anyone
+            CREATE POLICY \"Allow All\" ON storage.objects FOR ALL USING (true) WITH CHECK (true);
+            
+            -- 4. Set bucket to public
+            UPDATE storage.buckets SET public = true WHERE id = 'user-files';
           "

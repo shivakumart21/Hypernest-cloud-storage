@@ -198,10 +198,10 @@ async function loadFiles(searchQuery = '', sortBy = 'name-asc') {
 
     const filesList = document.getElementById('files-list');
     try {
-        const isStaticHost = window.location.hostname.includes('github.io');
+        const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
         let data;
 
-        if (!isStaticHost) {
+        if (isLocal) {
             try {
                 const response = await fetch('/proxy-list', {
                     headers: { 'x-user-id': currentUser.id }
@@ -416,11 +416,11 @@ async function handleUpload(files) {
     // Upload each file
     const uploads = files.map(async file => {
         try {
-      // detect if we are on a static host like GitHub Pages
-      const isStaticHost = window.location.hostname.includes('github.io');
+      // detect if we are on localhost vs a deployed environment
+      const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
       
       let result;
-      if (!isStaticHost) {
+      if (isLocal) {
           try {
               const response = await fetch('/proxy-upload', {
                   method: 'POST',

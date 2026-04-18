@@ -198,12 +198,34 @@ async function loadFiles(searchQuery = '', sortBy = 'name-asc') {
 
     const filesList = document.getElementById('files-list');
     try {
-        const response = await fetch('/proxy-list', {
-            headers: { 'x-user-id': currentUser.id }
-        });
-        const data = await response.json();
-        
-        if (!response.ok) throw new Error(data.error || 'Failed to fetch files');
+        const isStaticHost = window.location.hostname.includes('github.io');
+        let data;
+
+        if (!isStaticHost) {
+            try {
+                const response = await fetch('/proxy-list', {
+                    headers: { 'x-user-id': currentUser.id }
+                });
+                const text = await response.text();
+                if (text.includes('<!DOCTYPE html>')) throw new Error('BACKEND_MISSING');
+                data = JSON.parse(text);
+                if (!response.ok) throw new Error(data.error || 'Failed to fetch files');
+            } catch (err) {
+                if (err.message === 'BACKEND_MISSING') {
+                    data = await listDirectly();
+                } else throw err;
+            }
+        } else {
+            data = await listDirectly();
+        }
+
+        async function listDirectly() {
+            const { data: directData, error } = await supabase.storage
+              .from('user-files')
+              .list(currentUser.id);
+            if (error) throw error;
+            return directData;
+        }
 
         if (!data || data.length === 0) {
             filesList.innerHTML = '<div class="reveal" style="text-align: center; color: var(--muted);"><i class="fas fa-folder-open fa-3x"></i><p style="margin-top: 16px;">No files found</p></div>';
@@ -394,21 +416,53 @@ async function handleUpload(files) {
     // Upload each file
     const uploads = files.map(async file => {
         try {
-      // Use server-side proxy to bypass RLS security policies
-      const response = await fetch('/proxy-upload', {
-        method: 'POST',
-        headers: {
-            'x-file-name': file.name,
-            'x-user-id': currentUser.id,
-            'content-type': file.type || 'application/octet-stream'
-        },
-        body: file
-      });
+      // detect if we are on a static host like GitHub Pages
+      const isStaticHost = window.location.hostname.includes('github.io');
+      
+      let result;
+      if (!isStaticHost) {
+          try {
+              const response = await fetch('/proxy-upload', {
+                  method: 'POST',
+                  headers: {
+                      'x-file-name': file.name,
+                      'x-user-id': currentUser.id,
+                      'content-type': file.type || 'application/octet-stream'
+                  },
+                  body: file
+              });
+              const text = await response.text();
+              try { result = JSON.parse(text); } catch(e) { 
+                  if (text.includes('<!DOCTYPE html>')) throw new Error('BACKEND_MISSING');
+                  throw e;
+              }
+              if (!response.ok) throw new Error(result.error || 'Server proxy failed');
+          } catch (err) {
+              if (err.message === 'BACKEND_MISSING') {
+                  return uploadDirectly(file);
+              }
+              throw err;
+          }
+      } else {
+          return uploadDirectly(file);
+      }
 
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || 'Server proxy failed');
+      async function uploadDirectly(file) {
+          console.log('Static host detected or proxy missing, uploading directly to Supabase...');
+          const { data, error } = await supabase.storage
+            .from('user-files')
+            .upload(`${currentUser.id}/${file.name}`, file, { upsert: true });
+          
+          if (error) {
+              if (error.message.includes('row-level security')) {
+                  throw new Error('SECURITY_BLOCK: Please run the SQL setup found in your README.md in the Supabase Dashboard SQL Editor to allow uploads.');
+              }
+              throw error;
+          }
+          return data;
+      }
 
-      console.log('Upload success via proxy:', result);
+      console.log('Upload success:', result);
             
             const progressElement = document.querySelector(`[data-file="${file.name}"]`);
             progressElement.style.animation = 'fadeOut 0.5s ease forwards';
